@@ -29,8 +29,9 @@ class Parameters:
                 raise ValueError(f"{key} must be an integer")
         if not 1 <= self.n_qubits <= 12:
             raise ValueError("This starter supports 1..12 coordinate qubits")
-        if not all(np.isfinite(value) for value in vars(self).values()):
-            raise ValueError("All parameters must be finite")
+        for key, value in vars(self).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
+                raise ValueError(f"{key} must be a finite number")
         if self.x_min >= self.x_max or not self.x_min < self.x0 < self.x_max:
             raise ValueError("Require x_min < x0 < x_max")
         if min(self.sigma_x, self.mass, self.hbar, self.dt, self.barrier_width) <= 0:
@@ -63,21 +64,21 @@ def load_parameters(path: Path) -> Parameters:
 
 
 def make_grid(p: Parameters) -> np.ndarray:
-    # Half-open interval; no duplicate endpoint for a future Fourier grid.
     return p.x_min + p.dx * np.arange(p.size)
 
 
 def initial_amplitudes(p: Parameters) -> np.ndarray:
-    """Discrete amplitudes alpha_j, sum |alpha_j|² = 1.
-
-    sigma_x is the probability distribution's standard deviation before
-    truncation/discretization. This is a classical array, not a Q# state yet.
-    """
-    x = make_grid(p)
-    log_envelope = -(x - p.x0) ** 2 / (4 * p.sigma_x ** 2)
-    # Shift the exponent to avoid underflow for a very narrow packet.
-    alpha = np.exp(log_envelope - np.max(log_envelope)) * np.exp(1j * p.p0 * x / p.hbar)
-    return alpha / np.linalg.norm(alpha)
+    try:
+        with np.errstate(divide="raise", invalid="raise", over="raise", under="ignore"):
+            x = make_grid(p)
+            log_envelope = -(x - p.x0) ** 2 / (4 * p.sigma_x ** 2)
+            alpha = np.exp(log_envelope - np.max(log_envelope)) * np.exp(1j * p.p0 * x / p.hbar)
+            norm = np.linalg.norm(alpha)
+            if not np.isfinite(norm) or norm <= 0:
+                raise ValueError("Initial packet must have a finite positive norm")
+            return alpha / norm
+    except (FloatingPointError, OverflowError) as error:
+        raise ValueError("Cannot compute a finite initial packet") from error
 
 
 def potential(p: Parameters) -> np.ndarray:
