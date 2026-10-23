@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "physics-qdk-tunneling"
+version = "0.1.0"
+description = "Semester project scaffold: 1D quantum tunneling with Q# and QDK"
+requires-python = ">=3.11"
+dependencies = ["qdk==1.33.1", "numpy>=1.26,<3", "matplotlib>=3.8,<4"]
+
+[project.optional-dependencies]
+notebooks = ["qdk[jupyter]==1.33.1"]
+
+[tool.setuptools]
+packages = ["tunneling"]
