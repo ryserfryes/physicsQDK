@@ -1,7 +1,7 @@
 from pathlib import Path
 import numpy as np
 
-from .model import Parameters, initial_amplitudes
+from .model import Parameters, initial_amplitudes, make_grid, potential
 
 
 def sample_register(project_root: Path, n_qubits: int, shots: int) -> np.ndarray:
@@ -40,7 +40,8 @@ def _state_vector(qsharp, size):
     return amplitudes
 
 
-def simulate_free(p: Parameters, snapshot_steps, project_root: Path) -> np.ndarray:
+def simulate(p: Parameters, snapshot_steps, project_root: Path, *, second_barrier_center: float | None = None) -> np.ndarray:
+    """Simulate one barrier, optionally adding an identical second barrier."""
     from qdk import qsharp
 
     steps = tuple(snapshot_steps)
@@ -58,6 +59,22 @@ def simulate_free(p: Parameters, snapshot_steps, project_root: Path) -> np.ndarr
     phase_scale = -p.dt * p.hbar * (2 * np.pi / (p.x_max - p.x_min)) ** 2 / (2 * p.mass)
     bit_phases = phase_scale * momentum_weights ** 2
     pair_phases = 2 * phase_scale * np.outer(momentum_weights, momentum_weights)
+    indices = np.flatnonzero(potential(p))
+    if p.barrier_height > 0 and not indices.size:
+        raise ValueError("Barrier falls between grid points; increase n_qubits")
+    if second_barrier_center is not None:
+        center = second_barrier_center
+        if not np.isfinite(center) or center - p.barrier_width / 2 <= p.barrier_right or center + p.barrier_width / 2 >= p.x_max:
+            raise ValueError("Second barrier must fit to the right of the first, with a gap")
+        x = make_grid(p)
+        second = np.flatnonzero((x >= center - p.barrier_width / 2) & (x < center + p.barrier_width / 2))
+        if p.barrier_height > 0 and not second.size:
+            raise ValueError("Second barrier falls between grid points; increase n_qubits")
+        if p.barrier_height > 0:
+            indices = np.concatenate((indices, second))
+    barrier_expr = ("Tunneling.BarrierPhase(position, [" +
+                    ", ".join(str(int(i)) for i in indices) + "], " +
+                    _qsharp_array([-p.dt * p.barrier_height / (2 * p.hbar)])[1:-1] + ");")
 
     qsharp.eval(f"use position = Qubit[{p.n_qubits}];")
     qsharp.eval(
@@ -73,7 +90,16 @@ def simulate_free(p: Parameters, snapshot_steps, project_root: Path) -> np.ndarr
     current = 0
     for index, target in enumerate(steps):
         for _ in range(target - current):
+            if indices.size:
+                qsharp.eval(barrier_expr)
             qsharp.eval(step_expr)
+            if indices.size:
+                qsharp.eval(barrier_expr)
         states[index] = _state_vector(qsharp, p.size)
         current = target
     return states
+
+
+def simulate_free(p: Parameters, snapshot_steps, project_root: Path) -> np.ndarray:
+    from dataclasses import replace
+    return simulate(replace(p, barrier_height=0), snapshot_steps, project_root)

@@ -34,4 +34,22 @@ namespace Tunneling {
         Adjoint SwapReverseRegister(momentum);
         Adjoint ApplyQFT(momentum);
     }
+
+    // Apply the same phase to each computational basis state in the barrier.
+    operation BarrierPhase(position : Qubit[], indices : Int[], phase : Double) : Unit {
+        let n = Length(position);
+        for index in indices {
+            for i in 0..n - 1 {
+                if (index &&& (1 <<< (n - 1 - i))) == 0 { X(position[i]); }
+            }
+            if n == 1 {
+                R1(phase, position[0]);
+            } else {
+                Controlled R1(position[0..n - 2], (phase, position[n - 1]));
+            }
+            for i in 0..n - 1 {
+                if (index &&& (1 <<< (n - 1 - i))) == 0 { X(position[i]); }
+            }
+        }
+    }
 }

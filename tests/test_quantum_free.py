@@ -10,11 +10,29 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tunneling.model import Parameters, initial_amplitudes
-from tunneling.quantum import simulate_free
+from tunneling.quantum import simulate, simulate_free
 from tunneling.reference import simulate as simulate_reference
 
 
 class QdkFreeEvolutionTests(unittest.TestCase):
+    def test_second_barrier_has_effect_and_conserves_probability(self):
+        p = Parameters(n_qubits=7, x0=-2, sigma_x=1, p0=1, steps=20, dt=0.05)
+        one = simulate(p, [20], ROOT)[0]
+        two = simulate(p, [20], ROOT, second_barrier_center=2)[0]
+        self.assertGreater(np.linalg.norm(one - two), 1e-4)
+        self.assertAlmostEqual(float(np.sum(abs(two) ** 2)), 1, delta=1e-9)
+        with self.assertRaises(ValueError):
+            simulate(p, [1], ROOT, second_barrier_center=0.5)
+
+    def test_barrier_changes_evolution_and_matches_reference(self):
+        p = Parameters(n_qubits=8, x0=-2, sigma_x=1, p0=1, steps=20, dt=0.05)
+        state = simulate(p, [20], ROOT)[0]
+        free = simulate_free(p, [20], ROOT)[0]
+        reference = simulate_reference(p)[-1]
+        self.assertGreater(np.linalg.norm(state - free), 0.01)
+        self.assertAlmostEqual(float(np.sum(np.abs(state) ** 2)), 1, delta=1e-9)
+        np.testing.assert_allclose(np.abs(state) ** 2, np.abs(reference) ** 2, atol=0.002, rtol=0)
+
     def test_packet_and_free_evolution_match_python_at_multiple_times(self):
         p = Parameters(n_qubits=7, x_min=-20, x_max=20, x0=-8,
                        sigma_x=2, p0=1, barrier_height=0, dt=0.02, steps=10)
